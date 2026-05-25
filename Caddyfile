@@ -1,0 +1,28 @@
+# AI Memory Layer — Caddy reverse proxy
+# Автоматический TLS через внутренний CA (не Let's Encrypt).
+# Сертификаты генерируются при первом запуске, затем кешируются.
+
+{
+    # Внутренний CA — самоподписанные сертификаты без внешней валидации
+    local_certs
+
+    # Домен (можно заменить на IP или .local)
+    # Сертификат генерируется при первом запросе
+}
+
+# Общий домен. Если .local не резолвится — добавить в /etc/hosts
+# или заменить на IP-адрес сервера.
+ai.local {
+    # OB1 — Knowledge Base (MCP)
+    handle_path /ob1/* {
+        reverse_proxy ob1-server:7981
+    }
+
+    # Honcho — User Model (API)
+    handle_path /honcho/* {
+        reverse_proxy honcho-api:8000
+    }
+
+    # Health check для самого Caddy
+    respond /health 200
+}

@@ -3,4 +3,6 @@ embedding-cache/
 ob1-pgdata/
 honcho-pgdata/
 honcho-redis-data/
+caddy-data/
+caddy-config/
 backups/

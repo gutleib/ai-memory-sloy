@@ -2,15 +2,19 @@
 # =============================================================================
 # Единый PostgreSQL (pg17) с базами ob1 и honcho.
 # Один Infinity (deepvk/USER-bge-m3) на двоих.
+# Caddy reverse proxy — единая точка входа c авто-TLS.
 # Минимум app-логики в этом репо — только оркестрация.
 #
 # Деплой:
 #   cp .env.template .env   # заполнить ключи
 #   docker compose up -d
 #
+# Порты (наружу):
+#   80, 443 — Caddy (авто-TLS, path routing)
+#     /ob1 → OB1 MCP-сервер (knowledge base)
+#     /honcho → Honcho API (user model)
+#
 # Порты (только localhost):
-#   7981 — OB1 MCP-сервер (knowledge base)
-#   8000 — Honcho API (user model)
 #   7997 — Infinity API (общий эмбеддер)
 #   5432 — PostgreSQL (единый, базы ob1 + honcho)
 #   6379 — Redis Honcho
@@ -197,7 +201,28 @@ services:
         condition: service_healthy
     mem_limit: 1G
 
+  # =========================================================================
+  # Caddy — reverse proxy с авто-TLS
+  # =========================================================================
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "0.0.0.0:80:80"
+      - "0.0.0.0:443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      ob1-server:
+        condition: service_started
+      honcho-api:
+        condition: service_started
+
 volumes:
   pgdata:
   embedding-cache:
   honcho-redis-data:
+  caddy-data:
+  caddy-config:

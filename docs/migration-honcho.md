@@ -97,7 +97,7 @@ docker compose exec honcho-api /app/.venv/bin/python scripts/provision_db.py
 
 ```bash
 # Проверить API
-curl http://localhost:8000/health
+curl https://ai.local/honcho/health
 # → {"status": "ok"}
 
 # Проверить количество пиров (должно быть как было)
@@ -112,7 +112,7 @@ docker compose exec -T postgres psql -U honcho -d honcho -c "SELECT count(*) FRO
 
 ```json
 {
-  "baseUrl": "http://localhost:8000",
+  "baseUrl": "https://ai.local/honcho",
   ...
 }
 ```

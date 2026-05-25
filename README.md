@@ -7,14 +7,15 @@
 
 | Сервис | Порт | Назначение |
 |---|---|---|
-| **postgres** | `127.0.0.1:5432` | PostgreSQL 17 + pgvector — единый, базы `ob1` и `honcho` |
-| **db-init** | — | One-shot: создаёт пользователей, базы, включает pgvector |
-| **embedding** | `127.0.0.1:7997` | Infinity + deepvk/USER-bge-m3 (1024-dim) — общий |
-| **ob1-server** | `127.0.0.1:7981` | OB1 MCP: knowledge base, research cache, agent memory |
-| **honcho-api** | `127.0.0.1:8000` | Honcho API: модель пользователя, диалектика |
+| **caddy** | `0.0.0.0:80`, `0.0.0.0:443` | Reverse proxy с авто-TLS. `/ob1` → OB1, `/honcho` → Honcho |
+| **ob1-server** | внутренний | OB1 MCP: knowledge base, research cache, agent memory |
+| **honcho-api** | внутренний | Honcho API: модель пользователя, диалектика |
+| **postgres** | `127.0.0.1:5432` | PostgreSQL 17 + pgvector — единый |
+| **embedding** | `127.0.0.1:7997` | Infinity + deepvk/USER-bge-m3 (1024-dim) |
 | **honcho-redis** | `127.0.0.1:6379` | Redis — кеш Honcho |
+| **db-init** | — | One-shot: создаёт пользователей, базы, включает pgvector |
 
-Один PostgreSQL (pg17), один эмбеддер (~6.6 GB RAM), один DeepSeek API-ключ на весь стек.
+Один PostgreSQL, один эмбеддер, один прокси. Caddy генерит TLS-сертификаты автоматически.
 
 ## Быстрый старт
 
@@ -34,45 +35,44 @@ cp .env.template .env
 docker compose up -d
 
 # 4. Проверить
-curl http://localhost:7997/models   # Infinity
-curl http://localhost:7981/health   # OB1
-curl http://localhost:8000/health   # Honcho
+curl https://ai.local/health       # Caddy
+curl https://ai.local/ob1/health   # OB1
+curl https://ai.local/honcho/health # Honcho
+
+# Если ai.local не резолвится — добавить в /etc/hosts:
+# 127.0.0.1 ai.local
 ```
 
 ## Архитектура
 
 ```
-┌─────────────────────────────────────────────┐
-│                 DeepSeek API                 │
-│         (LLM — deriver, dialectic,          │
-│          metadata extraction)               │
-└──────┬──────────────────────┬───────────────┘
-       │                      │
-┌──────▼──────┐       ┌───────▼──────┐
-│  OB1 Server │       │ Honcho API   │
-│  (MCP:7981) │       │  (API:8000)  │
-│  knowledge  │       │  user model  │
-│  base       │       │  dialectic   │
-└──────┬──────┘       └───┬─────┬────┘
-       │                  │     │
-       │           ┌──────▼──┐  │
-       │           │ Redis   │  │
-       │           │ :6379   │  │
-       │           └─────────┘  │
-       │                  │     │
-┌──────▼──────────────────▼─────▼──────┐
-│           PostgreSQL 17 + pgvector   │
-│         ┌──────┐    ┌─────────┐      │
-│         │ ob1  │    │ honcho  │      │
-│         └──────┘    └─────────┘      │
-│              :5432                   │
-└──────────────────────────────────────┘
-                      │
-       ┌──────────────┴──────────────┐
-       │       Infinity :7997        │
-       │   USER-bge-m3, 1024-dim     │
-       │      (общий эмбеддер)       │
-       └─────────────────────────────┘
+              :80, :443
+         ┌─────────────────┐
+         │  Caddy (TLS)    │
+         │  /ob1  /honcho  │
+         └───┬─────────┬───┘
+             │         │
+    ┌────────▼──┐ ┌───▼─────────┐
+    │ OB1 Server│ │ Honcho API  │
+    │ knowledge │ │ user model  │
+    │ base      │ │ dialectic   │
+    └─────┬─────┘ └──┬────┬─────┘
+          │          │    │
+          │    ┌─────▼──┐ │
+          │    │ Redis  │ │
+          │    └────────┘ │
+          │          │    │
+    ┌─────▼──────────▼────▼─────┐
+    │   PostgreSQL 17 + pgvector│
+    │   ┌──────┐  ┌─────────┐   │
+    │   │ ob1  │  │ honcho  │   │
+    │   └──────┘  └─────────┘   │
+    └───────────────────────────┘
+                   │
+    ┌──────────────┴──────────┐
+    │    Infinity :7997       │
+    │  USER-bge-m3, 1024-dim  │
+    └─────────────────────────┘
 ```
 
 ## Системные требования
@@ -103,6 +103,47 @@ curl http://localhost:8000/health   # Honcho
 | `OB1_MCP_ACCESS_KEY` | OB1 |
 | `HONCHO_REDIS_PASSWORD` | Honcho |
 | `HONCHO_JWT_SECRET`, `HONCHO_API_KEY` | Honcho |
+
+## Caddy и TLS
+
+Caddy генерит TLS-сертификаты автоматически через внутренний CA.
+Чтобы curl и браузеры не ругались на самоподписанный сертификат —
+добавить корневой сертификат Caddy в доверенные на клиентах:
+
+```bash
+# Извлечь корневой сертификат из тома Caddy
+docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt /tmp/caddy-root.crt
+
+# Linux — добавить в системное хранилище
+sudo cp /tmp/caddy-root.crt /usr/local/share/ca-certificates/caddy-root.crt
+sudo update-ca-certificates
+
+# macOS
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain /tmp/caddy-root.crt
+```
+
+После этого `curl https://ai.local` работает без `-k`.
+
+## Подключение Hermes
+
+### OB1 (MCP)
+
+```bash
+hermes mcp add ob1 --url "https://ai.local/ob1/mcp?key=YOUR_OB1_MCP_ACCESS_KEY"
+hermes mcp test ob1
+# После /reset появятся инструменты: search, search_thoughts, capture_thought, ...
+```
+
+### Honcho (API)
+
+В `~/.hermes/honcho.json`:
+
+```json
+{
+  "baseUrl": "https://ai.local/honcho",
+  ...
+}
+```
 
 ## Обслуживание
 
