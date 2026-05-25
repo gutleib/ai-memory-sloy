@@ -106,6 +106,10 @@ curl http://localhost:8000/health   # Honcho
 
 ## Обслуживание
 
+### Миграция существующего Honcho
+
+См. [docs/migration-honcho.md](docs/migration-honcho.md).
+
 ### Резервное копирование
 
 ```bash

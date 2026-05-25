@@ -3,8 +3,8 @@
 # Единый PostgreSQL, базы ob1 и honcho.
 #
 # Использование: ./backup.sh
-# Результат: backups/ob1-YYYYMMDD-HHMM.sql.gz
-#            backups/honcho-YYYYMMDD-HHMM.sql.gz
+# Результат: backups/ob1-YYYYMMDD-HHMM.sql.zst
+#            backups/honcho-YYYYMMDD-HHMM.sql.zst
 
 set -euo pipefail
 
@@ -13,11 +13,13 @@ mkdir -p "$BACKUP_DIR"
 DATE=$(date +%Y%m%d-%H%M)
 
 echo "=== OB1 ==="
-docker compose exec -T postgres pg_dump -U postgres ob1 | gzip > "$BACKUP_DIR/ob1-${DATE}.sql.gz"
-echo "  → $BACKUP_DIR/ob1-${DATE}.sql.gz ($(wc -c < "$BACKUP_DIR/ob1-${DATE}.sql.gz") bytes)"
+docker compose exec -T postgres pg_dump -U postgres ob1 \
+  | zstd -T0 -8 -o "$BACKUP_DIR/ob1-${DATE}.sql.zst"
+echo "  → $BACKUP_DIR/ob1-${DATE}.sql.zst ($(wc -c < "$BACKUP_DIR/ob1-${DATE}.sql.zst") bytes)"
 
 echo "=== Honcho ==="
-docker compose exec -T postgres pg_dump -U postgres honcho | gzip > "$BACKUP_DIR/honcho-${DATE}.sql.gz"
-echo "  → $BACKUP_DIR/honcho-${DATE}.sql.gz ($(wc -c < "$BACKUP_DIR/honcho-${DATE}.sql.gz") bytes)"
+docker compose exec -T postgres pg_dump -U postgres honcho \
+  | zstd -T0 -8 -o "$BACKUP_DIR/honcho-${DATE}.sql.zst"
+echo "  → $BACKUP_DIR/honcho-${DATE}.sql.zst ($(wc -c < "$BACKUP_DIR/honcho-${DATE}.sql.zst") bytes)"
 
 echo "Done."
