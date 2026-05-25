@@ -94,8 +94,8 @@ curl http://localhost:8000/health   # Honcho
 
 | Переменная | Кто использует |
 |---|---|
-| `DEEPSEEK_API_KEY` | OB1 (метаданные) + Honcho (все LLM) |
-| `DEEPSEEK_URL`, `DEEPSEEK_MODEL` | Оба |
+| `LLM_API_KEY` | OB1 (метаданные) + Honcho (все LLM) |
+| `LLM_BASE_URL`, `LLM_MODEL` | Оба (по умолчанию DeepSeek, заменимо) |
 | `EMBEDDING_MODEL` | Оба (общий Infinity) |
 | `PG_SUPERUSER_PASSWORD` | PostgreSQL |
 | `OB1_DB_PASSWORD` | OB1 |
