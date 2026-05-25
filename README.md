@@ -19,6 +19,8 @@
 
 ## Быстрый старт
 
+**Требования:** Docker Engine ≥ 24, Docker Compose ≥ 2.23.0, git.
+
 ```bash
 # 1. Клонировать
 mkdir ~/ai-stack && cd ~/ai-stack
@@ -81,7 +83,13 @@ docker compose up -d
 # Проверить
 curl https://ваш-домен.com/health
 
-# Для реального TLS (не self-signed) — раскомментировать email в Caddyfile.
+# Для реального TLS (не self-signed) — добавить email в configs: секцию docker-compose.yml:
+# configs:
+#   caddy_config:
+#     content: |
+#       {
+#           email ваш@email.com
+#       }
 # Caddy автоматически получит сертификат от Let's Encrypt.
 
 # Hermes
@@ -153,7 +161,7 @@ hermes mcp add ob1 --url "https://ваш-домен.com/ob1/mcp?key=..."
 ## Caddy и TLS
 
 > При деплое на VPS — закрыть порты 80/443 файрволом.
-> Для реального TLS от Let's Encrypt — раскомментировать `email` в Caddyfile.
+> Для реального TLS от Let's Encrypt — добавить `email ваш@email.com` в блок `{}` секции `configs: caddy_config:` в docker-compose.yml.
 
 Caddy генерит TLS-сертификаты автоматически. Без email — внутренний CA (подходит для localhost/LAN).
 Чтобы curl и браузеры не ругались на самоподписанный сертификат — добавить корневой сертификат Caddy в доверенные на клиентах:
