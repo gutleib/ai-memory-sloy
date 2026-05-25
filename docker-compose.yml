@@ -231,10 +231,12 @@ services:
     ports:
       - "0.0.0.0:80:80"
       - "0.0.0.0:443:443"
+    configs:
+      - source: caddy_config
+        target: /etc/caddy/Caddyfile
     environment:
       - DOMAIN=${DOMAIN:-localhost}
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
     depends_on:
@@ -242,6 +244,24 @@ services:
         condition: service_started
       honcho-api:
         condition: service_started
+
+configs:
+  caddy_config:
+    content: |
+      {
+      }
+
+      {env.DOMAIN} {
+          handle_path /ob1/* {
+              reverse_proxy ob1-server:7981
+          }
+
+          handle_path /honcho/* {
+              reverse_proxy honcho-api:8000
+          }
+
+          respond /health 200
+      }
 
 volumes:
   pgdata:
