@@ -7,6 +7,16 @@
 
 Переносим дамп `pg_dump` → `psql`, без правки данных.
 
+### Какие пароли сохранить, какие — новые
+
+| Пароль | Старый | Новый | Действие |
+|---|---|---|---|
+| Доступ к БД | `POSTGRES_PASSWORD` (пользователь `postgres`) | `HONCHO_DB_PASSWORD` (пользователь `honcho`) | **Новый** — пользователи и базы разные |
+| Redis | `REDIS_PASSWORD` | `HONCHO_REDIS_PASSWORD` | **Новый** — кеш, данных нет |
+| JWT-секрет | `AUTH_JWT_SECRET` | `HONCHO_JWT_SECRET` | **Новый** — токены перевыпустятся |
+| API-ключ Honcho | `HONCHO_API_KEY` | `HONCHO_API_KEY` | **Сохранить** — иначе Hermes потеряет подключение. Или сменить и обновить `~/.hermes/honcho.json` |
+| Ключ LLM | `DEEPSEEK_API_KEY` / `LLM_OPENAI_API_KEY` | `LLM_API_KEY` | Тот же — внешний API-ключ |
+
 ---
 
 ## Шаг 1. Дамп существующей БД
