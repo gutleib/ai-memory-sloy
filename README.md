@@ -29,7 +29,7 @@ git clone https://github.com/gutleib/honcho.git  && cd honcho  && git checkout s
 # 2. Настроить переменные
 cd ai-memory-sloy
 cp .env.template .env
-# Заполнить: DEEPSEEK_API_KEY, пароли, JWT
+# Заполнить: LLM_API_KEY, пароли, JWT
 
 # 3. Запустить
 docker compose up -d
@@ -106,6 +106,8 @@ curl https://ai.local/honcho/health # Honcho
 
 ## Caddy и TLS
 
+> При деплое на облачный сервер — закрыть порты 80/443 файрволом или заменить `0.0.0.0` на конкретный IP в docker-compose.
+
 Caddy генерит TLS-сертификаты автоматически через внутренний CA.
 Чтобы curl и браузеры не ругались на самоподписанный сертификат —
 добавить корневой сертификат Caddy в доверенные на клиентах:
@@ -170,7 +172,7 @@ hermes mcp test ob1
 docker compose ps
 ```
 
-Все сервисы имеют healthcheck. `ob1-server` и `honcho-api` ждут завершения `db-init` и готовности `embedding`.
+PostgreSQL, Redis и embedding имеют healthcheck. `ob1-server` и `honcho-api` ждут завершения `db-init` и готовности `embedding`. Статус всех: `docker compose ps`.
 
 ## Самостоятельный запуск проектов
 

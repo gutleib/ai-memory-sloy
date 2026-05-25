@@ -59,7 +59,7 @@ services:
       - |
         set -e
         echo "Creating users and databases..."
-        psql -h postgres -U postgres -v ON_ERROR_STOP=1 <<'SQL'
+        psql -h postgres -U postgres -v ON_ERROR_STOP=1 <<SQL
           CREATE USER ob1 WITH PASSWORD '${OB1_DB_PASSWORD}';
           CREATE USER honcho WITH PASSWORD '${HONCHO_DB_PASSWORD}';
           CREATE DATABASE ob1 OWNER ob1;
@@ -118,7 +118,7 @@ services:
       LLM_API_KEY: ${LLM_API_KEY}
       LLM_MODEL: ${LLM_MODEL}
       MCP_ACCESS_KEY: ${OB1_MCP_ACCESS_KEY}
-      OPEN_BRAIN_CITATION_BASE_URL: ${OB1_CITATION_URL:-http://localhost:7981/thoughts}
+      OPEN_BRAIN_CITATION_BASE_URL: ${OB1_CITATION_URL:-https://ai.local/ob1}
     depends_on:
       db-init:
         condition: service_completed_successfully
