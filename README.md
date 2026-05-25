@@ -29,18 +29,61 @@ git clone https://github.com/gutleib/honcho.git  && cd honcho  && git checkout s
 # 2. Настроить переменные
 cd ai-memory-sloy
 cp .env.template .env
-# Заполнить: LLM_API_KEY, пароли, JWT
+# Заполнить: LLM_API_KEY, пароли, JWT.
+# Выбрать DOMAIN — см. три сценария ниже.
+```
 
-# 3. Запустить
+### Сценарий 1: Рабочая станция (localhost)
+
+```bash
+# .env: DOMAIN=localhost (уже по умолчанию)
 docker compose up -d
 
-# 4. Проверить
-curl https://ai.local/health       # Caddy
-curl https://ai.local/ob1/health   # OB1
-curl https://ai.local/honcho/health # Honcho
+# Проверить
+curl -k https://localhost/health       # Caddy
+curl -k https://localhost/ob1/health   # OB1
+curl -k https://localhost/honcho/health # Honcho
 
-# Если ai.local не резолвится — добавить в /etc/hosts:
-# 127.0.0.1 ai.local
+# Hermes
+hermes mcp add ob1 --url "https://localhost/ob1/mcp?key=..."
+# honcho.json: "baseUrl": "https://localhost/honcho"
+```
+
+### Сценарий 2: Локальная сеть (ai.local)
+
+```bash
+# .env: DOMAIN=ai.local
+# На клиентах: /etc/hosts → <IP-сервера> ai.local
+docker compose up -d
+
+# Проверить с клиентской машины (или с сервера)
+curl -k https://ai.local/health
+
+# Доверить сертификат Caddy на клиентах (см. раздел «Caddy и TLS»)
+# После этого curl без -k.
+
+# Hermes
+hermes mcp add ob1 --url "https://ai.local/ob1/mcp?key=..."
+# honcho.json: "baseUrl": "https://ai.local/honcho"
+```
+
+### Сценарий 3: VPS (реальный домен)
+
+```bash
+# .env: DOMAIN=ваш-домен.com
+# DNS: A-запись домена → IP VPS
+# Файрвол: открыть 80/443, PostgreSQL/Redis/Infinity — только localhost
+docker compose up -d
+
+# Проверить
+curl https://ваш-домен.com/health
+
+# Для реального TLS (не self-signed) — раскомментировать email в Caddyfile.
+# Caddy автоматически получит сертификат от Let's Encrypt.
+
+# Hermes
+hermes mcp add ob1 --url "https://ваш-домен.com/ob1/mcp?key=..."
+# honcho.json: "baseUrl": "https://ваш-домен.com/honcho"
 ```
 
 ## Архитектура
@@ -106,11 +149,11 @@ curl https://ai.local/honcho/health # Honcho
 
 ## Caddy и TLS
 
-> При деплое на облачный сервер — закрыть порты 80/443 файрволом или заменить `0.0.0.0` на конкретный IP в docker-compose.
+> При деплое на VPS — закрыть порты 80/443 файрволом.
+> Для реального TLS от Let's Encrypt — раскомментировать `email` в Caddyfile.
 
-Caddy генерит TLS-сертификаты автоматически через внутренний CA.
-Чтобы curl и браузеры не ругались на самоподписанный сертификат —
-добавить корневой сертификат Caddy в доверенные на клиентах:
+Caddy генерит TLS-сертификаты автоматически. Без email — внутренний CA (подходит для localhost/LAN).
+Чтобы curl и браузеры не ругались на самоподписанный сертификат — добавить корневой сертификат Caddy в доверенные на клиентах:
 
 ```bash
 # Извлечь корневой сертификат из тома Caddy
@@ -125,27 +168,6 @@ sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keyc
 ```
 
 После этого `curl https://ai.local` работает без `-k`.
-
-## Подключение Hermes
-
-### OB1 (MCP)
-
-```bash
-hermes mcp add ob1 --url "https://ai.local/ob1/mcp?key=YOUR_OB1_MCP_ACCESS_KEY"
-hermes mcp test ob1
-# После /reset появятся инструменты: search, search_thoughts, capture_thought, ...
-```
-
-### Honcho (API)
-
-В `~/.hermes/honcho.json`:
-
-```json
-{
-  "baseUrl": "https://ai.local/honcho",
-  ...
-}
-```
 
 ## Обслуживание
 
