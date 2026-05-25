@@ -110,9 +110,9 @@ services:
       DATABASE_URL: postgresql://ob1:${OB1_DB_PASSWORD}@postgres:5432/ob1
       INFINITY_URL: http://embedding:7997
       INFINITY_MODEL: ${EMBEDDING_MODEL:-deepvk/USER-bge-m3}
-      DEEPSEEK_URL: ${LLM_BASE_URL}
-      DEEPSEEK_API_KEY: ${LLM_API_KEY}
-      DEEPSEEK_MODEL: ${LLM_MODEL}
+      LLM_BASE_URL: ${LLM_BASE_URL}
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_MODEL: ${LLM_MODEL}
       MCP_ACCESS_KEY: ${OB1_MCP_ACCESS_KEY}
       OPEN_BRAIN_CITATION_BASE_URL: ${OB1_CITATION_URL:-https://openbrain.local/thoughts}
     depends_on:
