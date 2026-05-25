@@ -114,7 +114,7 @@ services:
       LLM_API_KEY: ${LLM_API_KEY}
       LLM_MODEL: ${LLM_MODEL}
       MCP_ACCESS_KEY: ${OB1_MCP_ACCESS_KEY}
-      OPEN_BRAIN_CITATION_BASE_URL: ${OB1_CITATION_URL:-https://openbrain.local/thoughts}
+      OPEN_BRAIN_CITATION_BASE_URL: ${OB1_CITATION_URL:-http://localhost:7981/thoughts}
     depends_on:
       db-init:
         condition: service_completed_successfully
