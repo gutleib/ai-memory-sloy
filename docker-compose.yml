@@ -1,7 +1,8 @@
-# Memory Layer — Полный стек: OB1 + Honcho + общий эмбеддер
+# AI Memory Layer — Полный стек: OB1 + Honcho + общие PostgreSQL и эмбеддер
 # =============================================================================
-# Запускает оба сервиса памяти вместе, деля один Infinity между ними.
-# Минимальный расход ресурсов: одна модель bge-m3 на двоих.
+# Единый PostgreSQL (pg17) с базами ob1 и honcho.
+# Один Infinity (deepvk/USER-bge-m3) на двоих.
+# Минимум app-логики в этом репо — только оркестрация.
 #
 # Деплой:
 #   cp .env.template .env   # заполнить ключи
@@ -11,11 +12,66 @@
 #   7981 — OB1 MCP-сервер (knowledge base)
 #   8000 — Honcho API (user model)
 #   7997 — Infinity API (общий эмбеддер)
-#   5432 — PostgreSQL OB1
-#   5433 — PostgreSQL Honcho
+#   5432 — PostgreSQL (единый, базы ob1 + honcho)
 #   6379 — Redis Honcho
+#
+# Системные требования: 12 GB RAM, 30 GB диск
 
 services:
+  # =========================================================================
+  # Единый PostgreSQL (pg17 + pgvector) — две базы, два пользователя
+  # =========================================================================
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${PG_SUPERUSER_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+    command: ["postgres", "-c", "max_connections=40"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 768M
+    # Единый инстанс вместо двух — экономия ~200 MB RAM.
+
+  # =========================================================================
+  # One-shot: создаёт базы и пользователей, включает pgvector
+  # =========================================================================
+  db-init:
+    image: pgvector/pgvector:pg17
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint:
+      - bash
+      - -c
+      - |
+        set -e
+        echo "Creating users and databases..."
+        psql -h postgres -U postgres -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE USER ob1 WITH PASSWORD '${OB1_DB_PASSWORD}';
+          CREATE USER honcho WITH PASSWORD '${HONCHO_DB_PASSWORD}';
+          CREATE DATABASE ob1 OWNER ob1;
+          CREATE DATABASE honcho OWNER honcho;
+          \c ob1
+          CREATE EXTENSION IF NOT EXISTS vector;
+          \c honcho
+          CREATE EXTENSION IF NOT EXISTS vector;
+        SQL
+        echo "Done."
+    environment:
+      PGPASSWORD: ${PG_SUPERUSER_PASSWORD}
+      OB1_DB_PASSWORD: ${OB1_DB_PASSWORD}
+      HONCHO_DB_PASSWORD: ${HONCHO_DB_PASSWORD}
+    # TODO: добавить pg_upgrade при смене мажорной версии PostgreSQL
+
   # =========================================================================
   # Общий эмбеддер — один на двоих
   # =========================================================================
@@ -39,31 +95,10 @@ services:
       timeout: 10s
       retries: 10
       start_period: 120s
-    # deepvk/USER-bge-m3: русский MTEB 0.706, 1024-dim, ~6.6 GB RAM.
-    # start_period=120s — модель грузится долго, не дёргать healthcheck раньше.
 
   # =========================================================================
   # OB1 — Knowledge Base
   # =========================================================================
-  ob1-postgres:
-    image: pgvector/pgvector:pg16
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ob1
-      POSTGRES_USER: ob1
-      POSTGRES_PASSWORD: ${OB1_DB_PASSWORD}
-    volumes:
-      - ob1-pgdata:/var/lib/postgresql/data
-    ports:
-      - "127.0.0.1:5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ob1 -d ob1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    mem_limit: 512M
-    # pgvector с индексами может выходить за 256M при активной работе.
-
   ob1-server:
     build:
       context: ../OB1/server-python
@@ -72,7 +107,7 @@ services:
     ports:
       - "127.0.0.1:7981:7981"
     environment:
-      DATABASE_URL: postgresql://ob1:${OB1_DB_PASSWORD}@ob1-postgres:5432/ob1
+      DATABASE_URL: postgresql://ob1:${OB1_DB_PASSWORD}@postgres:5432/ob1
       INFINITY_URL: http://embedding:7997
       INFINITY_MODEL: ${EMBEDDING_MODEL:-deepvk/USER-bge-m3}
       DEEPSEEK_URL: ${DEEPSEEK_URL:-https://api.deepseek.com}
@@ -81,8 +116,8 @@ services:
       MCP_ACCESS_KEY: ${OB1_MCP_ACCESS_KEY}
       OPEN_BRAIN_CITATION_BASE_URL: ${OB1_CITATION_URL:-https://openbrain.local/thoughts}
     depends_on:
-      ob1-postgres:
-        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
       embedding:
         condition: service_healthy
     mem_limit: 512M
@@ -90,27 +125,6 @@ services:
   # =========================================================================
   # Honcho — User Model
   # =========================================================================
-  honcho-postgres:
-    image: pgvector/pgvector:pg15
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: postgres
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${HONCHO_DB_PASSWORD}
-      PGDATA: /var/lib/postgresql/data/pgdata
-    volumes:
-      - ../honcho/database/init.sql:/docker-entrypoint-initdb.d/init.sql
-      - honcho-pgdata:/var/lib/postgresql/data/
-    ports:
-      - "127.0.0.1:5433:5432"
-    command: ["postgres", "-c", "max_connections=20"]
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    mem_limit: 256M
-
   honcho-redis:
     image: redis:8.2
     restart: unless-stopped
@@ -137,24 +151,19 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     environment:
-      # База и кеш
-      DB_CONNECTION_URI: postgresql+psycopg://postgres:${HONCHO_DB_PASSWORD}@honcho-postgres:5432/postgres
+      DB_CONNECTION_URI: postgresql+psycopg://honcho:${HONCHO_DB_PASSWORD}@postgres:5432/honcho
       CACHE_URL: redis://:${HONCHO_REDIS_PASSWORD}@honcho-redis:6379/0?suppress=true
       CACHE_ENABLED: "true"
       DB_POOL_SIZE: "5"
       DB_MAX_OVERFLOW: "5"
-      # LLM — те же ключи, что у OB1
       LLM_OPENAI_API_KEY: ${DEEPSEEK_API_KEY}
-      # Эмбеддинги — тот же Infinity
       EMBEDDING_VECTOR_DIMENSIONS: "1024"
       EMBEDDING_MODEL_CONFIG__MODEL: ${EMBEDDING_MODEL:-deepvk/USER-bge-m3}
       EMBEDDING_MODEL_CONFIG__OVERRIDES__BASE_URL: http://embedding:7997
-      # Deriver
       DERIVER_ENABLED: "true"
       DERIVER_WORKERS: "1"
       DERIVER_MODEL_CONFIG__MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
       DERIVER_MODEL_CONFIG__OVERRIDES__BASE_URL: ${DEEPSEEK_URL:-https://api.deepseek.com}/v1
-      # Dialectic
       DIALECTIC_LEVELS__minimal__MODEL_CONFIG__MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
       DIALECTIC_LEVELS__minimal__MODEL_CONFIG__OVERRIDES__BASE_URL: ${DEEPSEEK_URL:-https://api.deepseek.com}/v1
       DIALECTIC_LEVELS__low__MODEL_CONFIG__MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
@@ -165,27 +174,23 @@ services:
       DIALECTIC_LEVELS__high__MODEL_CONFIG__OVERRIDES__BASE_URL: ${DEEPSEEK_URL:-https://api.deepseek.com}/v1
       DIALECTIC_LEVELS__max__MODEL_CONFIG__MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
       DIALECTIC_LEVELS__max__MODEL_CONFIG__OVERRIDES__BASE_URL: ${DEEPSEEK_URL:-https://api.deepseek.com}/v1
-      # Summarizer
       SUMMARY_ENABLED: "true"
       SUMMARY_MODEL_CONFIG__MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
       SUMMARY_MODEL_CONFIG__OVERRIDES__BASE_URL: ${DEEPSEEK_URL:-https://api.deepseek.com}/v1
-      # Dreamer
       DREAM_ENABLED: "true"
       DREAM_DEDUCTION_MODEL_CONFIG__MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
       DREAM_DEDUCTION_MODEL_CONFIG__OVERRIDES__BASE_URL: ${DEEPSEEK_URL:-https://api.deepseek.com}/v1
       DREAM_INDUCTION_MODEL_CONFIG__MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
       DREAM_INDUCTION_MODEL_CONFIG__OVERRIDES__BASE_URL: ${DEEPSEEK_URL:-https://api.deepseek.com}/v1
-      # Аутентификация
       AUTH_USE_AUTH: "true"
       AUTH_JWT_SECRET: ${HONCHO_JWT_SECRET}
       HONCHO_API_KEY: ${HONCHO_API_KEY}
-      # Телеметрия
       DO_NOT_TRACK: "1"
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       VECTOR_STORE_TYPE: pgvector
     depends_on:
-      honcho-postgres:
-        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
       honcho-redis:
         condition: service_healthy
       embedding:
@@ -193,7 +198,6 @@ services:
     mem_limit: 1G
 
 volumes:
+  pgdata:
   embedding-cache:
-  ob1-pgdata:
-  honcho-pgdata:
   honcho-redis-data:

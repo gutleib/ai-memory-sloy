@@ -1,19 +1,20 @@
-# Memory Layer — Полный стек русской AI-памяти
+# AI Memory Layer — Полный стек русской AI-памяти
 
-> OB1 + Honcho + общий эмбеддер. Всё в одном `docker compose up`.
+> OB1 (knowledge base) + Honcho (user model) + общие PostgreSQL и эмбеддер.
+> Всё в одном `docker compose up`. Минимум app-логики — только оркестрация.
 
 ## Что внутри
 
 | Сервис | Порт | Назначение |
 |---|---|---|
-| **embedding** | `127.0.0.1:7997` | Infinity + deepvk/USER-bge-m3 (1024-dim) — общий для обоих |
+| **postgres** | `127.0.0.1:5432` | PostgreSQL 17 + pgvector — единый, базы `ob1` и `honcho` |
+| **db-init** | — | One-shot: создаёт пользователей, базы, включает pgvector |
+| **embedding** | `127.0.0.1:7997` | Infinity + deepvk/USER-bge-m3 (1024-dim) — общий |
 | **ob1-server** | `127.0.0.1:7981` | OB1 MCP: knowledge base, research cache, agent memory |
-| **ob1-postgres** | `127.0.0.1:5432` | PostgreSQL 16 + pgvector для OB1 |
 | **honcho-api** | `127.0.0.1:8000` | Honcho API: модель пользователя, диалектика |
-| **honcho-postgres** | `127.0.0.1:5433` | PostgreSQL 15 + pgvector для Honcho |
 | **honcho-redis** | `127.0.0.1:6379` | Redis — кеш Honcho |
 
-Одна модель bge-m3 (~6.6 GB RAM) обслуживает оба проекта. Один DeepSeek API-ключ на всех.
+Один PostgreSQL (pg17), один эмбеддер (~6.6 GB RAM), один DeepSeek API-ключ на весь стек.
 
 ## Быстрый старт
 
@@ -25,9 +26,9 @@ git clone https://github.com/gutleib/OB1.git
 git clone https://github.com/gutleib/honcho.git
 
 # 2. Настроить переменные
-cd infra-memory
+cd ai-memory-sloy
 cp .env.template .env
-# Заполнить: DEEPSEEK_API_KEY, все пароли, JWT
+# Заполнить: DEEPSEEK_API_KEY, пароли, JWT
 
 # 3. Запустить
 docker compose up -d
@@ -52,78 +53,56 @@ curl http://localhost:8000/health   # Honcho
 │  (MCP:7981) │       │  (API:8000)  │
 │  knowledge  │       │  user model  │
 │  base       │       │  dialectic   │
-└──────┬──────┘       └───────┬──────┘
-       │                      │
-┌──────▼──────┐       ┌───────▼──────┐
-│  OB1 PG:5432│       │Honcho PG:5433│
-│  (pgvector) │       │  (pgvector)  │
-└─────────────┘       └──────┬───────┘
-                             │
-                      ┌──────▼──────┐
-                      │ Redis :6379 │
-                      └─────────────┘
-
-       ┌─────────────────────┐
-       │  Infinity :7997     │
-       │  USER-bge-m3, 1024d │
-       │  (общий эмбеддер)   │
-       └──────────┬──────────┘
-                  │
-       ┌──────────┴──────────┐
-       │  Оба сервера        │
-       │  ходят сюда         │
-       └─────────────────────┘
+└──────┬──────┘       └───┬─────┬────┘
+       │                  │     │
+       │           ┌──────▼──┐  │
+       │           │ Redis   │  │
+       │           │ :6379   │  │
+       │           └─────────┘  │
+       │                  │     │
+┌──────▼──────────────────▼─────▼──────┐
+│           PostgreSQL 17 + pgvector   │
+│         ┌──────┐    ┌─────────┐      │
+│         │ ob1  │    │ honcho  │      │
+│         └──────┘    └─────────┘      │
+│              :5432                   │
+└──────────────────────────────────────┘
+                      │
+       ┌──────────────┴──────────────┐
+       │       Infinity :7997        │
+       │   USER-bge-m3, 1024-dim     │
+       │      (общий эмбеддер)       │
+       └─────────────────────────────┘
 ```
 
 ## Системные требования
 
 | Ресурс | Минимум | Рекомендуется |
 |---|---|---|
-| RAM | 12 GB | 16+ GB |
+| RAM | 11 GB | 14+ GB |
 | CPU | 4 ядра | 8 ядер |
-| Диск | 30 GB | 50+ GB |
+| Диск | 25 GB | 40+ GB |
 
 Раскладка по памяти:
 - Infinity + bge-m3: ~7 GB
+- PostgreSQL (единый): ~500 MB
+- Honcho API + deriver: ~800 MB
 - OB1 server: ~200 MB
-- Honcho API + deriver: ~800 MB (пиково >1 GB)
-- PostgreSQL ×2: ~300 MB
 - Redis: ~10 MB
 
-## Переменные
-
-Все ключи — в одном `.env`. Никакого дублирования:
+## Переменные (единый .env)
 
 | Переменная | Кто использует |
 |---|---|
 | `DEEPSEEK_API_KEY` | OB1 (метаданные) + Honcho (все LLM) |
-| `DEEPSEEK_URL` | Оба |
-| `DEEPSEEK_MODEL` | Оба |
+| `DEEPSEEK_URL`, `DEEPSEEK_MODEL` | Оба |
 | `EMBEDDING_MODEL` | Оба (общий Infinity) |
+| `PG_SUPERUSER_PASSWORD` | PostgreSQL |
 | `OB1_DB_PASSWORD` | OB1 |
-| `OB1_MCP_ACCESS_KEY` | OB1 |
 | `HONCHO_DB_PASSWORD` | Honcho |
+| `OB1_MCP_ACCESS_KEY` | OB1 |
 | `HONCHO_REDIS_PASSWORD` | Honcho |
-| `HONCHO_JWT_SECRET` | Honcho |
-| `HONCHO_API_KEY` | Honcho |
-
-## Самостоятельный запуск проектов
-
-Каждый проект можно запустить отдельно (без memory-layer):
-
-```bash
-# Только OB1
-cd ../OB1 && docker compose up -d
-
-# Только Honcho
-cd ../honcho && docker compose -f docker-compose.selfhosted.yml up -d
-```
-
-При самостоятельном запуске каждый поднимает свой Infinity. В memory-layer — один на двоих.
-
-## Лицензия
-
-MIT
+| `HONCHO_JWT_SECRET`, `HONCHO_API_KEY` | Honcho |
 
 ## Обслуживание
 
@@ -133,18 +112,33 @@ MIT
 ./backup.sh
 ```
 
-Создаст `backups/ob1-*.sql.gz` и `backups/honcho-*.sql.gz`. Рекомендуется в cron:
+Создаст `backups/ob1-*.sql.gz` и `backups/honcho-*.sql.gz`.
 
 ```bash
 # Ежедневно в 3:00
 0 3 * * * cd ~/ai-stack/ai-memory-sloy && ./backup.sh
 ```
 
-### Healthcheck
+### Статус
 
-Все сервисы имеют healthcheck в docker-compose:
-- `embedding`: `curl http://localhost:7997/health`, start_period=120s (модель грузится ~2 мин)
-- `ob1-server`, `honcho-api`: ждут готовности embedding перед стартом
-- `*-postgres`: `pg_isready`
+```bash
+docker compose ps
+```
 
-Статус всех сервисов: `docker compose ps`.
+Все сервисы имеют healthcheck. `ob1-server` и `honcho-api` ждут завершения `db-init` и готовности `embedding`.
+
+## Самостоятельный запуск проектов
+
+Каждый проект можно запустить отдельно (со своим PostgreSQL):
+
+```bash
+# Только OB1
+cd ../OB1 && docker compose up -d
+
+# Только Honcho
+cd ../honcho && docker compose -f docker-compose.selfhosted.yml up -d
+```
+
+## Лицензия
+
+MIT
