@@ -83,10 +83,7 @@ docker compose up -d
 # Проверить
 curl https://ваш-домен.com/health
 
-# Для реального TLS (не self-signed) — добавить email в configs: секцию docker-compose.yml:
-# configs:
-#   caddy_config:
-#     content: |
+# Для реального TLS (не self-signed) — заменить 'tls internal' на email в блоке {}:
 #       {
 #           email ваш@email.com
 #       }
