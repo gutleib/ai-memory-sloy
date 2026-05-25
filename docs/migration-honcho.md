@@ -9,11 +9,12 @@
 
 ---
 
-## Шаг 1. Дамп существующей БД (на старом сервере)
+## Шаг 1. Дамп существующей БД
 
 ```bash
-# На хосте, где запущен старый Honcho (omv-atom или где pgvector:pg15)
-docker exec honcho-gt-database-1 \
+# На хосте со старым Honcho. Замени <container> на имя твоего PostgreSQL-контейнера.
+# Узнать имя: docker ps --format '{{.Names}}' | grep database
+docker exec <container> \
   pg_dump -U postgres postgres --no-owner --no-acl \
   | zstd -T0 -10 -o honcho-migration-$(date +%Y%m%d).sql.zst
 ```
@@ -34,7 +35,7 @@ ls -lh honcho-migration-*.sql.zst
 ## Шаг 2. Перенос файла на новый сервер
 
 ```bash
-scp honcho-migration-*.sql.zst user@new-server:~/ai-stack/
+scp honcho-migration-*.sql.zst <user>@<host>:~/ai-stack/
 ```
 
 ---
