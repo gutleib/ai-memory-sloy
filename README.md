@@ -19,11 +19,11 @@
 ## Быстрый старт
 
 ```bash
-# 1. Клонировать все три репозитория рядом
+# 1. Клонировать все три репозитория рядом (ветка selfhosted-ru)
 mkdir ~/ai-stack && cd ~/ai-stack
 git clone https://github.com/gutleib/ai-memory-sloy.git
-git clone https://github.com/gutleib/OB1.git
-git clone https://github.com/gutleib/honcho.git
+git clone https://github.com/gutleib/OB1.git     && cd OB1     && git checkout selfhosted-ru && cd ..
+git clone https://github.com/gutleib/honcho.git  && cd honcho  && git checkout selfhosted-ru && cd ..
 
 # 2. Настроить переменные
 cd ai-memory-sloy
