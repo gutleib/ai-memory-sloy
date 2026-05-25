@@ -7,7 +7,8 @@
 #
 # Деплой:
 #   cp .env.template .env   # заполнить ключи
-#   docker compose up -d
+#   ./setup.sh              # собрать образы OB1 и Honcho
+#   docker compose up -d    # запустить стек
 #
 # Порты (наружу):
 #   80, 443 — Caddy (авто-TLS, path routing)
@@ -26,7 +27,8 @@ services:
   # Единый PostgreSQL (pg17 + pgvector) — две базы, два пользователя
   # =========================================================================
   postgres:
-    image: pgvector/pgvector:pg17
+    image: ${IMAGE_PGVECTOR:-pgvector/pgvector:pg17}
+    pull_policy: never
     restart: unless-stopped
     environment:
       POSTGRES_DB: postgres
@@ -49,7 +51,8 @@ services:
   # One-shot: создаёт базы и пользователей, включает pgvector
   # =========================================================================
   db-init:
-    image: pgvector/pgvector:pg17
+    image: ${IMAGE_PGVECTOR:-pgvector/pgvector:pg17}
+    pull_policy: never
     depends_on:
       postgres:
         condition: service_healthy
@@ -59,16 +62,31 @@ services:
       - |
         set -e
         echo "Creating users and databases..."
+
         psql -h postgres -U postgres -v ON_ERROR_STOP=1 <<SQL
-          CREATE USER ob1 WITH PASSWORD '${OB1_DB_PASSWORD}';
-          CREATE USER honcho WITH PASSWORD '${HONCHO_DB_PASSWORD}';
-          CREATE DATABASE ob1 OWNER ob1;
-          CREATE DATABASE honcho OWNER honcho;
-          \c ob1
-          CREATE EXTENSION IF NOT EXISTS vector;
-          \c honcho
-          CREATE EXTENSION IF NOT EXISTS vector;
+          DO \$\$
+          BEGIN
+            IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'ob1') THEN
+              CREATE ROLE ob1 WITH LOGIN PASSWORD '${OB1_DB_PASSWORD}';
+            END IF;
+            IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'honcho') THEN
+              CREATE ROLE honcho WITH LOGIN PASSWORD '${HONCHO_DB_PASSWORD}';
+            END IF;
+          END
+          \$\$;
         SQL
+
+        for db in ob1 honcho; do
+          psql -h postgres -U postgres -tAc \
+            "SELECT 1 FROM pg_database WHERE datname='$$db'" | grep -q 1 \
+            || psql -h postgres -U postgres -v ON_ERROR_STOP=1 \
+                 -c "CREATE DATABASE $$db OWNER $$db"
+        done
+
+        psql -h postgres -U postgres -v ON_ERROR_STOP=1 -d ob1 \
+          -c "CREATE EXTENSION IF NOT EXISTS vector"
+        psql -h postgres -U postgres -v ON_ERROR_STOP=1 -d honcho \
+          -c "CREATE EXTENSION IF NOT EXISTS vector"
         echo "Done."
     environment:
       PGPASSWORD: ${PG_SUPERUSER_PASSWORD}
@@ -80,7 +98,8 @@ services:
   # Общий эмбеддер — один на двоих
   # =========================================================================
   embedding:
-    image: michaelf34/infinity:0.0.77-cpu
+    image: ${IMAGE_INFINITY:-michaelf34/infinity:0.0.77-cpu}
+    pull_policy: never
     restart: unless-stopped
     ports:
       - "127.0.0.1:7997:7997"
@@ -88,6 +107,8 @@ services:
       - "v2"
       - "--model-id"
       - "${EMBEDDING_MODEL:-deepvk/USER-bge-m3}"
+      - "--engine"
+      - "torch"
       - "--port"
       - "7997"
     volumes:
@@ -104,9 +125,8 @@ services:
   # OB1 — Knowledge Base
   # =========================================================================
   ob1-server:
-    build:
-      context: ../OB1/server-python
-      dockerfile: Dockerfile
+    image: ai-memory-sloy/ob1-server:latest
+    pull_policy: never
     restart: unless-stopped
     ports:
       - "127.0.0.1:7981:7981"
@@ -130,7 +150,8 @@ services:
   # Honcho — User Model
   # =========================================================================
   honcho-redis:
-    image: redis:8.2
+    image: ${IMAGE_REDIS:-redis:8.2}
+    pull_policy: never
     restart: unless-stopped
     ports:
       - "127.0.0.1:6379:6379"
@@ -147,9 +168,8 @@ services:
     mem_limit: 128M
 
   honcho-api:
-    build:
-      context: ../honcho
-      dockerfile: Dockerfile
+    image: ai-memory-sloy/honcho-api:latest
+    pull_policy: never
     entrypoint: ["sh", "docker/entrypoint.sh"]
     restart: unless-stopped
     ports:
@@ -205,7 +225,8 @@ services:
   # Caddy — reverse proxy с авто-TLS
   # =========================================================================
   caddy:
-    image: caddy:2-alpine
+    image: ${IMAGE_CADDY:-caddy:2-alpine}
+    pull_policy: never
     restart: unless-stopped
     ports:
       - "0.0.0.0:80:80"

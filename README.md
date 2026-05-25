@@ -20,17 +20,21 @@
 ## Быстрый старт
 
 ```bash
-# 1. Клонировать все три репозитория рядом (ветка selfhosted-ru)
+# 1. Клонировать
 mkdir ~/ai-stack && cd ~/ai-stack
 git clone https://github.com/gutleib/ai-memory-sloy.git
-git clone https://github.com/gutleib/OB1.git     && cd OB1     && git checkout selfhosted-ru && cd ..
-git clone https://github.com/gutleib/honcho.git  && cd honcho  && git checkout selfhosted-ru && cd ..
-
-# 2. Настроить переменные
 cd ai-memory-sloy
+
+# 2. Настроить
 cp .env.template .env
 # Заполнить: LLM_API_KEY, пароли, JWT.
 # Выбрать DOMAIN — см. три сценария ниже.
+
+# 3. Собрать образы
+./setup.sh
+
+# 4. Запустить
+docker compose up -d
 ```
 
 ### Сценарий 1: Рабочая станция (localhost)
@@ -72,7 +76,6 @@ hermes mcp add ob1 --url "https://ai.local/ob1/mcp?key=..."
 ```bash
 # .env: DOMAIN=ваш-домен.com
 # DNS: A-запись домена → IP VPS
-# Файрвол: открыть 80/443, PostgreSQL/Redis/Infinity — только localhost
 docker compose up -d
 
 # Проверить
@@ -198,14 +201,11 @@ PostgreSQL, Redis и embedding имеют healthcheck. `ob1-server` и `honcho-a
 
 ## Самостоятельный запуск проектов
 
-Каждый проект можно запустить отдельно (со своим PostgreSQL):
+Для пересборки образов (после обновления кода в GitHub):
 
 ```bash
-# Только OB1
-cd ../OB1 && docker compose up -d
-
-# Только Honcho
-cd ../honcho && docker compose -f docker-compose.selfhosted.yml up -d
+./setup.sh                  # пересобрать образы
+docker compose up -d        # перезапустить приложения
 ```
 
 ## Лицензия
