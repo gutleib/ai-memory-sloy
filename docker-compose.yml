@@ -2,7 +2,7 @@
 # =============================================================================
 # Единый PostgreSQL (pg17) с базами ob1 и honcho.
 # Один Infinity (deepvk/USER-bge-m3) на двоих.
-# Caddy reverse proxy — единая точка входа c авто-TLS.
+# Caddy reverse proxy — единая точка входа (HTTP по умолчанию, TLS опционально).
 # Минимум app-логики в этом репо — только оркестрация.
 #
 # Деплой:
@@ -11,7 +11,7 @@
 #   docker compose up -d    # запустить стек
 #
 # Порты (наружу):
-#   80, 443 — Caddy (авто-TLS, path routing)
+#   80 — Caddy reverse proxy (HTTP по умолчанию, TLS опционально).
 #     /ob1 → OB1 MCP-сервер (knowledge base)
 #     /honcho → Honcho API (user model)
 #
@@ -138,7 +138,7 @@ services:
       LLM_API_KEY: ${LLM_API_KEY}
       LLM_MODEL: ${LLM_MODEL}
       MCP_ACCESS_KEY: ${OB1_MCP_ACCESS_KEY}
-      OPEN_BRAIN_CITATION_BASE_URL: ${OB1_CITATION_URL:-https://ai.local/ob1}
+      OPEN_BRAIN_CITATION_BASE_URL: ${OB1_CITATION_URL:-http://localhost/ob1}
     depends_on:
       db-init:
         condition: service_completed_successfully
@@ -212,6 +212,18 @@ services:
       DO_NOT_TRACK: "1"
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       VECTOR_STORE_TYPE: pgvector
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "/app/.venv/bin/python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2).read()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     depends_on:
       db-init:
         condition: service_completed_successfully
@@ -222,7 +234,46 @@ services:
     mem_limit: 1G
 
   # =========================================================================
-  # Caddy — reverse proxy с авто-TLS
+  # Honcho Deriver — background worker (queue processor)
+  # =========================================================================
+  honcho-deriver:
+    image: ai-memory-sloy/honcho-api:latest
+    pull_policy: never
+    entrypoint: ["/app/.venv/bin/python", "-m", "src.deriver"]
+    restart: unless-stopped
+    environment:
+      DB_CONNECTION_URI: postgresql+psycopg://honcho:${HONCHO_DB_PASSWORD}@postgres:5432/honcho
+      CACHE_URL: redis://:${HONCHO_REDIS_PASSWORD}@honcho-redis:6379/0?suppress=true
+      CACHE_ENABLED: "true"
+      LLM_OPENAI_API_KEY: ${LLM_API_KEY}
+      EMBEDDING_VECTOR_DIMENSIONS: "1024"
+      EMBEDDING_MODEL_CONFIG__MODEL: ${EMBEDDING_MODEL:-deepvk/USER-bge-m3}
+      EMBEDDING_MODEL_CONFIG__OVERRIDES__BASE_URL: http://embedding:7997
+      DERIVER_ENABLED: "true"
+      DERIVER_WORKERS: "1"
+      DERIVER_MODEL_CONFIG__MODEL: ${LLM_MODEL}
+      DERIVER_MODEL_CONFIG__OVERRIDES__BASE_URL: ${LLM_BASE_URL}/v1
+      SUMMARY_ENABLED: "true"
+      SUMMARY_MODEL_CONFIG__MODEL: ${LLM_MODEL}
+      SUMMARY_MODEL_CONFIG__OVERRIDES__BASE_URL: ${LLM_BASE_URL}/v1
+      DREAM_ENABLED: "true"
+      DREAM_DEDUCTION_MODEL_CONFIG__MODEL: ${LLM_MODEL}
+      DREAM_DEDUCTION_MODEL_CONFIG__OVERRIDES__BASE_URL: ${LLM_BASE_URL}/v1
+      DREAM_INDUCTION_MODEL_CONFIG__MODEL: ${LLM_MODEL}
+      DREAM_INDUCTION_MODEL_CONFIG__OVERRIDES__BASE_URL: ${LLM_BASE_URL}/v1
+      AUTH_USE_AUTH: "true"
+      AUTH_JWT_SECRET: ${HONCHO_JWT_SECRET}
+      HONCHO_API_KEY: ${HONCHO_API_KEY}
+      DO_NOT_TRACK: "1"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      VECTOR_STORE_TYPE: pgvector
+    depends_on:
+      honcho-api:
+        condition: service_healthy
+    mem_limit: 512M
+
+  # =========================================================================
+  # Caddy — reverse proxy (HTTP по умолчанию, TLS опционально)
   # =========================================================================
   caddy:
     image: ${IMAGE_CADDY:-caddy:2-alpine}
@@ -230,14 +281,12 @@ services:
     restart: unless-stopped
     ports:
       - "0.0.0.0:${CADDY_HTTP_PORT:-80}:80"
-      - "0.0.0.0:${CADDY_HTTPS_PORT:-443}:443"
     configs:
       - source: caddy_config
         target: /etc/caddy/Caddyfile
     environment:
       - DOMAIN=${DOMAIN:-localhost}
       - CADDY_HTTP_PORT=${CADDY_HTTP_PORT:-80}
-      - CADDY_HTTPS_PORT=${CADDY_HTTPS_PORT:-443}
     volumes:
       - caddy-data:/data
       - caddy-config:/config
@@ -253,8 +302,7 @@ configs:
       {
       }
 
-      {$DOMAIN} {
-          tls internal
+      http:// {
           handle_path /ob1/* {
               reverse_proxy ob1-server:7981
           }
@@ -263,7 +311,7 @@ configs:
               reverse_proxy honcho-api:8000
           }
 
-          respond /health 200
+          respond /health "ok" 200
       }
 
 volumes:
