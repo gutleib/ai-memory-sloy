@@ -240,6 +240,10 @@ Caddy автоматически получит сертификат от Let's 
 
 См. [docs/migration-honcho.md](docs/migration-honcho.md).
 
+## Подключение агентов
+
+- [Hermes Agent](docs/connect-hermes.md) — подключение за 5 минут: память (Honcho) + knowledge base (OB1)
+
 ### Резервное копирование
 
 ```bash
